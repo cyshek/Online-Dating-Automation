@@ -45,7 +45,7 @@ ACTIONS = {
 }
 
 # Define the coordinates for cropping (adjust as needed)
-CROP_BOX = (3, 150, 1074, 1548)
+CROP_BOX = (3, 150, 1074, 1410)
 
 # Function to capture screenshot, crop it, and save it with a label
 def capture_screenshot(label, counters):
@@ -126,7 +126,7 @@ def cycle_through_images():
         # If the new image is the same as the **previous** image, we are stuck (possible last image)
         if images_are_similar(temp_previous_image, temp_current_image):
             print("Detected duplicate image, assuming last image. Stopping.")
-            return       
+            return      
 
 # Function to add randomization to coordinates
 def randomize_coordinates(x, y, max_variation=20):
@@ -150,18 +150,17 @@ def cleanup():
 # Main function to handle the user input and automate swiping
 if __name__ == "__main__":
     counters = load_counters()
-    cycle_through_images()
     try:
         while True:
-
-            '''
+            cycle_through_images()
             decision = input("Enter 'like' or 'dislike': ").strip().lower()
             if decision in ACTIONS:
                 capture_screenshot(decision, counters)
                 tap(decision)
+                time.sleep(random.uniform(1, 1.5)) 
             else:
                 print("Invalid input. Please enter 'like' or 'dislike'.")
-            '''
+            
     except KeyboardInterrupt:
         print("Data collection stopped.")
     finally:
