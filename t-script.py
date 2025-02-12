@@ -3,6 +3,8 @@ import time
 import os
 import json
 import random
+import datetime
+import shutil
 from PIL import Image
 from PIL import ImageChops
 from PIL import ImageStat
@@ -83,14 +85,28 @@ def images_are_similar(img1_path, img2_path, threshold=5):
 
     return mean_diff < threshold
 
+# Function to generate a unique profile folder
+def create_profile_temp_folder():
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    profile_folder = os.path.join(TEMP_SCREENSHOT_PATH, f"profile_{timestamp}")
+    os.makedirs(profile_folder, exist_ok=True)
+    return profile_folder
+
 def cycle_through_images():
-    temp_first_image = os.path.join(TEMP_SCREENSHOT_PATH, "first_image.png")
+    profile_folder = create_profile_temp_folder()  # Create a temp folder for this profile
+    image_count = 1  # Track how many images are saved
+
+    temp_first_image = os.path.join(profile_folder, "first_image.png")
     temp_previous_image = os.path.join(TEMP_SCREENSHOT_PATH, "previous_image.png")
     temp_current_image = os.path.join(TEMP_SCREENSHOT_PATH, "current_image.png")
 
     # Capture and save the first image
     subprocess.run(["adb", "shell", "screencap", "-p", "/sdcard/temp_screenshot.png"])
     subprocess.run(["adb", "pull", "/sdcard/temp_screenshot.png", temp_first_image])
+
+    # Save first image properly
+    os.rename(temp_first_image, os.path.join(profile_folder, f"image_{image_count}.png"))
+    image_count += 1
 
     # Attempt to move to the next image
     tap("next_image")
@@ -101,14 +117,18 @@ def cycle_through_images():
     subprocess.run(["adb", "pull", "/sdcard/temp_screenshot.png", temp_current_image])
 
     # Edge Case: If first and second images are the same, there's only one image
-    if images_are_similar(temp_first_image, temp_current_image):
+    if images_are_similar(os.path.join(profile_folder, "image_1.png"), temp_current_image):
         print("Only one image in the profile. Stopping.")
-        return  
+        return profile_folder  
+
+    # Save the second image properly
+    os.rename(temp_current_image, os.path.join(profile_folder, f"image_{image_count}.png"))
+    image_count += 1
 
     # Move through the images
     while True:
         # Save the previous image before swiping
-        os.replace(temp_current_image, temp_previous_image)
+        shutil.copy(os.path.join(profile_folder, f"image_{image_count-1}.png"), temp_previous_image)
 
         # Tap to go to the next image
         tap("next_image")
@@ -119,14 +139,20 @@ def cycle_through_images():
         subprocess.run(["adb", "pull", "/sdcard/temp_screenshot.png", temp_current_image])
 
         # If the new image is the same as the **first** image, we've looped back to the start
-        if images_are_similar(temp_first_image, temp_current_image):
+        if images_are_similar(os.path.join(profile_folder, "image_1.png"), temp_current_image):
             print("Reached last image, stopping immediately.")
-            return  
+            break
 
         # If the new image is the same as the **previous** image, we are stuck (possible last image)
         if images_are_similar(temp_previous_image, temp_current_image):
             print("Detected duplicate image, assuming last image. Stopping.")
-            return      
+            break
+
+        # Save the new image properly
+        os.rename(temp_current_image, os.path.join(profile_folder, f"image_{image_count}.png"))
+        image_count += 1
+
+    return profile_folder 
 
 # Function to add randomization to coordinates
 def randomize_coordinates(x, y, max_variation=20):
