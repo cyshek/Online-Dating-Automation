@@ -1,4 +1,3 @@
-#TESTING
 import subprocess
 import time
 import os
@@ -6,7 +5,8 @@ import json
 import random
 import datetime
 import shutil
-from PIL import Image, ImageChops, ImageStat
+from PIL import Image
+from io import BytesIO
 
 # File path for storing like/dislike counters
 COUNTER_FILE = "counters.json"
@@ -51,25 +51,18 @@ def save_counters(counters):
 
 def capture_and_crop_screenshot(save_path):
     """
-    Captures a screenshot from the mobile device using ADB,
-    pulls it to the local machine, crops it according to the defined crop box,
-    and then saves the cropped image to the specified save path.
+    Captures a screenshot from the mobile device using ADB, 
+    transfers it in-memory to the local machine, 
+    crops it, and saves it without writing unnecessary temporary files.
     """
-    # Temporary path to store the screenshot pulled from the device
-    temp_screenshot_path = os.path.join(TEMP_SCREENSHOT_PATH, "temp_screenshot.png")
+    # Capture screenshot on device and output it as a raw byte stream
+    result = subprocess.run(["adb", "shell", "screencap", "-p"], capture_output=True, check=True)
+    screenshot_data = result.stdout.replace(b'\r\n', b'\n')  # Fixes Windows line endings issue
 
-    # Capture screenshot on device and save to device storage
-    subprocess.run(["adb", "shell", "screencap", "-p", "/sdcard/temp_screenshot.png"], check=True)
-    # Pull the screenshot from the device to local temporary path
-    subprocess.run(["adb", "pull", "/sdcard/temp_screenshot.png", temp_screenshot_path], check=True)
-
-    # Open the screenshot and crop it to extract the profile image area
-    with Image.open(temp_screenshot_path) as img:
+    # Open the screenshot in-memory and crop it
+    with Image.open(BytesIO(screenshot_data)) as img:
         cropped_image = img.crop(CROP_BOX)
         cropped_image.save(save_path)
-
-    # Remove the temporary screenshot file
-    os.remove(temp_screenshot_path)
 
 def cycle_through_images():
     """
@@ -205,12 +198,6 @@ def remove_images_in_main_profile_folder(profile_folder):
             os.remove(item_path)
             print(f"Deleted: {item_path}")
 
-def cleanup():
-    """
-    Performs cleanup by removing temporary screenshot file from the device.
-    """
-    subprocess.run(["adb", "shell", "rm", "/sdcard/temp_screenshot.png"], check=True)
-
 if __name__ == "__main__":
     # Load previous counters for likes, dislikes, and images processed
     counters = load_counters()
@@ -267,7 +254,4 @@ if __name__ == "__main__":
         # Allow graceful exit if the user stops the process
         print("Data collection stopped.")
     finally:
-        # Perform cleanup on exit
-        cleanup()
         save_counters(counters)
-        print("Cleanup complete.")
