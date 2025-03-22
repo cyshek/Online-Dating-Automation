@@ -5,6 +5,7 @@ import json
 import random
 import datetime
 import shutil
+import uuid
 from PIL import Image
 from io import BytesIO
 
@@ -62,7 +63,7 @@ def capture_and_crop_screenshot(save_path):
     # Open the screenshot in-memory and crop it
     with Image.open(BytesIO(screenshot_data)) as img:
         cropped_image = img.crop(CROP_BOX)
-        cropped_image.save(save_path)
+        cropped_image.save(save_path)  # Save the cropped image to the specified path
 
 def cycle_through_images():
     """
@@ -158,13 +159,7 @@ def images_are_similar(img1_path, img2_path, threshold=0.95):
         return rms > threshold  # Closer to 1 means more similar
 
 def create_profile_temp_folder():
-    """
-    Creates a new temporary folder for storing screenshots of a single profile.
-    The folder is named using the current timestamp.
-    Returns the path of the created folder.
-    """
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    profile_folder = os.path.join(TEMP_SCREENSHOT_PATH, f"profile_{timestamp}")
+    profile_folder = os.path.join(TEMP_SCREENSHOT_PATH, f"profile_{uuid.uuid4().hex}")
     os.makedirs(profile_folder, exist_ok=True)
     return profile_folder
 
