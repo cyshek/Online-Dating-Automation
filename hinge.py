@@ -6,6 +6,7 @@ import random
 import datetime
 import shutil
 import uuid
+import numpy as np
 from PIL import Image
 from io import BytesIO
 
@@ -16,6 +17,12 @@ COUNTER_FILE = "counters.json"
 LIKED_PATH = r"D:\Online Dating Automation\Image Data\Liked Profiles"
 DISLIKED_PATH = r"D:\Online Dating Automation\Image Data\Disliked Profiles"
 TEMP_SCREENSHOT_PATH = r"D:\Online Dating Automation\Image Data\Temporary Screenshots"
+
+HEART_BUTTON_COORDS = (1017, 1029)  # This is the bottom right corner of the heart button
+COLOR_THRESHOLD = 230  # Anything above this (R, G, B) is considered white
+
+# Define the cropping box for Hinge profile images (left, upper, right, lower)
+CROP_BOX = (30, 302, 1047, 1331)
 
 # Create the directories if they do not exist
 os.makedirs(LIKED_PATH, exist_ok=True)
@@ -29,9 +36,6 @@ ACTIONS = {
     "like": (685, 1775),
     "dislike": (400, 1771),
 }
-
-# Define the cropping box for Tinder profile images (left, upper, right, lower)
-CROP_BOX = (30, 302, 1047, 1331)
 
 def load_counters():
     """
@@ -98,13 +102,44 @@ def remove_images_in_main_profile_folder(profile_folder):
             os.remove(item_path)
             print(f"Deleted: {item_path}")
 
+def is_prompt_background(image_path):
+    """Checks if the area around the heart button is mostly white."""
+    with Image.open(image_path) as image:
+        # Convert to RGB if the image is in RGBA or any other mode
+        if image.mode == 'RGBA':
+            image = image.convert('RGB')
+
+        print(f"Original image size: {image.size}")  # Should match expected full screenshot dimensions
+
+        x, y = HEART_BUTTON_COORDS
+        check_area = image.crop((x - 74, y - 74, x, y))  # Small box around heart button
+
+        # Debug: Save the cropped area to see what's inside
+        check_area.save("cropped_area.png")
+
+        # Debug: Print pixel values in the cropped area
+        cropped_pixels = np.array(check_area)
+
+        # Calculate the average color
+        avg_color = np.mean(cropped_pixels, axis=(0, 1))  # Average R, G, B values
+        print(f"Average color: {avg_color}")  # Debugging line to check the values
+
+        # If all RGB values are above the threshold, it's likely white
+        return all(avg_color > COLOR_THRESHOLD)
+
 if __name__ == "__main__":
     # Load previous counters for likes, dislikes, and images processed
     counters = load_counters()
     try:
-        capture_and_crop_screenshot(os.path.join(TEMP_SCREENSHOT_PATH, "screenshot.png"))
+        screenshot_path = os.path.join(TEMP_SCREENSHOT_PATH, "screenshot.png")
+        capture_and_crop_screenshot(screenshot_path)  # Capture and save the image
+        if is_prompt_background(screenshot_path):
+            print("This is a prompt!")
+        else:
+            print("This is an image!")
+
         # adb shell input swipe x1 y1 x2 y2 duration
-        subprocess.run(["adb", "shell", "input", "swipe", "500", "1500", "500", "500", "300"])
+        # subprocess.run(["adb", "shell", "input", "swipe", "500", "1500", "500", "500", "300"])
         print("Screenshot captured and cropped.")
     except KeyboardInterrupt:
         # Allow graceful exit if the user stops the process
