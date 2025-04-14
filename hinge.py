@@ -2,8 +2,6 @@ import subprocess
 import time
 import os
 import json
-import random
-import datetime
 import shutil
 import uuid
 import numpy as np
@@ -25,17 +23,8 @@ COLOR_THRESHOLD = 230  # Anything above this (R, G, B) is considered white
 CROP_BOX = (30, 302, 1047, 1331)
 
 # Create the directories if they do not exist
-os.makedirs(LIKED_PATH, exist_ok=True)
-os.makedirs(DISLIKED_PATH, exist_ok=True)
-os.makedirs(TEMP_SCREENSHOT_PATH, exist_ok=True)
-
-# Define screen coordinates for different actions on the mobile device
-ACTIONS = {
-    "next_image": (801, 402),
-    "prev_image": (203, 405),
-    "like": (685, 1775),
-    "dislike": (400, 1771),
-}
+for path in [LIKED_PATH, DISLIKED_PATH, TEMP_SCREENSHOT_PATH]:
+    os.makedirs(path, exist_ok=True)
 
 def load_counters():
     """
@@ -53,39 +42,6 @@ def save_counters(counters):
     """
     with open(COUNTER_FILE, "w") as f:
         json.dump(counters, f)
-
-def capture_and_crop_screenshot(save_path):
-    """
-    Captures a screenshot from the mobile device using ADB, 
-    transfers it in-memory to the local machine, 
-    crops it, and saves it without writing unnecessary temporary files.
-    """
-    # Capture screenshot on device and output it as a raw byte stream
-    result = subprocess.run(["adb", "shell", "screencap", "-p"], capture_output=True, check=True)
-    screenshot_data = result.stdout.replace(b'\r\n', b'\n')  # Fixes Windows line endings issue
-
-    # Open the screenshot in-memory and crop it
-    with Image.open(BytesIO(screenshot_data)) as img:
-        cropped_image = img.crop(CROP_BOX)
-        cropped_image.save(save_path)  # Save the cropped image to the specified path
-
-def label_individual_image(image_path, liked_folder, disliked_folder):
-    """
-    Displays the current image (optional) and prompts the user to label the image.
-    If the user presses 'v', the image is copied into the disliked folder.
-    If the user presses 'n', the image is copied into the liked folder.
-    If no valid input is given, the image remains only in the main profile folder.
-    """
-    # Optionally, you could display the image using Image.open(image_path).show()
-    decision = input(f"Image {os.path.basename(image_path)}: Press 'N' to like, 'V' to dislike, or any other key to skip: ").strip().lower()
-    if decision == "n":
-        destination = os.path.join(liked_folder, os.path.basename(image_path))
-        shutil.copy(image_path, destination)
-        print("Image labeled as liked.")
-    elif decision == "v":
-        destination = os.path.join(disliked_folder, os.path.basename(image_path))
-        shutil.copy(image_path, destination)
-        print("Image labeled as disliked.")
 
 def create_profile_temp_folder():
     profile_folder = os.path.join(TEMP_SCREENSHOT_PATH, f"profile_{uuid.uuid4().hex}")
@@ -106,16 +62,13 @@ def is_prompt_background(image_path):
     """Checks if the area around the heart button is mostly white."""
     with Image.open(image_path) as image:
         # Convert to RGB if the image is in RGBA or any other mode
-        if image.mode == 'RGBA':
+        if image.mode != 'RGB':
             image = image.convert('RGB')
 
         print(f"Original image size: {image.size}")  # Should match expected full screenshot dimensions
 
         x, y = HEART_BUTTON_COORDS
         check_area = image.crop((x - 74, y - 74, x, y))  # Small box around heart button
-
-        # Debug: Save the cropped area to see what's inside
-        check_area.save("cropped_area.png")
 
         # Debug: Print pixel values in the cropped area
         cropped_pixels = np.array(check_area)
@@ -128,21 +81,42 @@ def is_prompt_background(image_path):
         return all(avg_color > COLOR_THRESHOLD)
 
 if __name__ == "__main__":
-    # Load previous counters for likes, dislikes, and images processed
     counters = load_counters()
-    try:
-        screenshot_path = os.path.join(TEMP_SCREENSHOT_PATH, "screenshot.png")
-        capture_and_crop_screenshot(screenshot_path)  # Capture and save the image
-        if is_prompt_background(screenshot_path):
-            print("This is a prompt!")
-        else:
-            print("This is an image!")
+    profile_folder = create_profile_temp_folder()
+    max_images = 5
+    saved_images = 0
+    scroll_attempts = 0
+    max_scrolls = 10
 
-        # adb shell input swipe x1 y1 x2 y2 duration
-        # subprocess.run(["adb", "shell", "input", "swipe", "500", "1500", "500", "500", "300"])
-        print("Screenshot captured and cropped.")
+    try:
+        while saved_images < max_images and scroll_attempts < max_scrolls:
+            # Take full screenshot first (not cropped)
+            full_screenshot_path = os.path.join(profile_folder, f"full_{saved_images + 1}.png")
+            result = subprocess.run(["adb", "shell", "screencap", "-p"], capture_output=True, check=True)
+            screenshot_data = result.stdout.replace(b'\r\n', b'\n')
+            with Image.open(BytesIO(screenshot_data)) as img:
+                img.save(full_screenshot_path)
+
+            # Check if this screen contains a heart icon (aka a profile photo)
+            if is_prompt_background(full_screenshot_path):
+                print("Prompt detected. Skipping capture.")
+            else:
+                # Crop and save actual photo area
+                with Image.open(full_screenshot_path) as img:
+                    cropped = img.crop(CROP_BOX)
+                    cropped_path = os.path.join(profile_folder, f"img_{saved_images + 1}.png")
+                    cropped.save(cropped_path)
+                    print(f"Saved profile photo #{saved_images + 1}")
+                    saved_images += 1
+
+            # Always scroll down
+            subprocess.run(["adb", "shell", "input", "swipe", "500", "1500", "500", "500", "300"])
+            time.sleep(1.0)
+            scroll_attempts += 1
+
+        print(f"Done! Collected {saved_images} profile image(s).")
     except KeyboardInterrupt:
-        # Allow graceful exit if the user stops the process
-        print("Data collection stopped.")
+        print("Stopped manually.")
     finally:
         save_counters(counters)
+        # remove_images_in_main_profile_folder(profile_folder)

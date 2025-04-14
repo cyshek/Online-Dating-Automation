@@ -18,9 +18,8 @@ DISLIKED_PATH = r"D:\Online Dating Automation\Image Data\Disliked Profiles"
 TEMP_SCREENSHOT_PATH = r"D:\Online Dating Automation\Image Data\Temporary Screenshots"
 
 # Create the directories if they do not exist
-os.makedirs(LIKED_PATH, exist_ok=True)
-os.makedirs(DISLIKED_PATH, exist_ok=True)
-os.makedirs(TEMP_SCREENSHOT_PATH, exist_ok=True)
+for path in [LIKED_PATH, DISLIKED_PATH, TEMP_SCREENSHOT_PATH]:
+    os.makedirs(path, exist_ok=True)
 
 # Define screen coordinates for different actions on the mobile device
 ACTIONS = {
