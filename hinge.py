@@ -7,6 +7,7 @@ import uuid
 import numpy as np
 from PIL import Image
 from io import BytesIO
+from detecthearts import detect_hearts_from_screen
 
 # File path for storing like/dislike counters
 COUNTER_FILE = "counters.json"
@@ -80,16 +81,28 @@ def is_prompt_background(image_path):
         # If all RGB values are above the threshold, it's likely white
         return all(avg_color > COLOR_THRESHOLD)
 
+def swipe_up():
+    # Coordinates based on 1080x1920 screen — adjust if needed
+    x1, y1, x2, y2 = 500, 1500, 500, 500
+    subprocess.run(["adb", "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), "300"])
+
 if __name__ == "__main__":
     counters = load_counters()
     profile_folder = create_profile_temp_folder()
+
+    output_folder = "detected_hearts"
+    os.makedirs(output_folder, exist_ok=True)
+
     max_images = 5
     saved_images = 0
-    scroll_attempts = 0
-    max_scrolls = 10
+
+    max_hearts = 5
+    total_saved = 0
+    attempts = 0
+    max_attempts = 10  # Prevent infinite scrolls
 
     try:
-        while saved_images < max_images and scroll_attempts < max_scrolls:
+        while total_saved < max_hearts and attempts < max_attempts:
             # Take full screenshot first (not cropped)
             full_screenshot_path = os.path.join(profile_folder, f"full_{saved_images + 1}.png")
             result = subprocess.run(["adb", "shell", "screencap", "-p"], capture_output=True, check=True)
@@ -108,11 +121,21 @@ if __name__ == "__main__":
                     cropped.save(cropped_path)
                     print(f"Saved profile photo #{saved_images + 1}")
                     saved_images += 1
+            prev_count = total_saved
 
-            # Always scroll down
-            subprocess.run(["adb", "shell", "input", "swipe", "500", "1500", "500", "500", "300"])
+            total_saved = detect_hearts_from_screen(output_folder=output_folder, max_hearts=max_hearts)
+
+            if total_saved >= max_hearts:
+                print("[hinge] Reached maximum heart count.")
+                break
+
+            if total_saved == prev_count:
+                print("[hinge] No new hearts detected — possible bottom of profile.")
+                break
+
+            swipe_up()
             time.sleep(1.0)
-            scroll_attempts += 1
+            attempts += 1
 
         print(f"Done! Collected {saved_images} profile image(s).")
     except KeyboardInterrupt:
