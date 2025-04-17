@@ -21,7 +21,14 @@ HEART_BUTTON_COORDS = (1017, 1029)  # This is the bottom right corner of the hea
 COLOR_THRESHOLD = 230  # Anything above this (R, G, B) is considered white
 
 # Define the cropping box for Hinge profile images (left, upper, right, lower)
-CROP_BOX = (30, 302, 1047, 1331)
+# CROP_BOX = (30, 302, 1047, 1331)
+# Customize how far the crop extends from the heart icon
+CROP_LEFT = 940 # How far to the LEFT of the heart to start cropping
+CROP_TOP = 940  # How far ABOVE the heart to start cropping
+CROP_RIGHT = 0    # How far to the RIGHT of the heart to include (0 = stop exactly at x)
+CROP_BOTTOM = 0   # How far BELOW the heart to include (0 = stop exactly at y)
+
+
 
 # Create the directories if they do not exist
 for path in [LIKED_PATH, DISLIKED_PATH, TEMP_SCREENSHOT_PATH]:
@@ -59,31 +66,20 @@ def remove_images_in_main_profile_folder(profile_folder):
             os.remove(item_path)
             print(f"Deleted: {item_path}")
 
-def is_prompt_background(image_path):
-    """Checks if the area around the heart button is mostly white."""
-    with Image.open(image_path) as image:
-        # Convert to RGB if the image is in RGBA or any other mode
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
+def is_prompt_background(image):
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
 
-        print(f"Original image size: {image.size}")  # Should match expected full screenshot dimensions
+    x, y = HEART_BUTTON_COORDS
+    check_area = image.crop((x - 74, y - 74, x, y))
 
-        x, y = HEART_BUTTON_COORDS
-        check_area = image.crop((x - 74, y - 74, x, y))  # Small box around heart button
-
-        # Debug: Print pixel values in the cropped area
-        cropped_pixels = np.array(check_area)
-
-        # Calculate the average color
-        avg_color = np.mean(cropped_pixels, axis=(0, 1))  # Average R, G, B values
-        print(f"Average color: {avg_color}")  # Debugging line to check the values
-
-        # If all RGB values are above the threshold, it's likely white
-        return all(avg_color > COLOR_THRESHOLD)
+    cropped_pixels = np.array(check_area)
+    avg_color = np.mean(cropped_pixels, axis=(0, 1))
+    return all(avg_color > COLOR_THRESHOLD)
 
 def swipe_up():
     # Coordinates based on 1080x1920 screen — adjust if needed
-    x1, y1, x2, y2 = 500, 1500, 500, 500
+    x1, y1, x2, y2 = 500, 1000, 500, 500
     subprocess.run(["adb", "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), "300"])
 
 if __name__ == "__main__":
@@ -96,34 +92,41 @@ if __name__ == "__main__":
     max_images = 5
     saved_images = 0
 
-    max_hearts = 5
+    max_hearts = 10
     total_saved = 0
     attempts = 0
     max_attempts = 10  # Prevent infinite scrolls
 
     try:
         while total_saved < max_hearts and attempts < max_attempts:
-            # Take full screenshot first (not cropped)
-            full_screenshot_path = os.path.join(profile_folder, f"full_{saved_images + 1}.png")
             result = subprocess.run(["adb", "shell", "screencap", "-p"], capture_output=True, check=True)
             screenshot_data = result.stdout.replace(b'\r\n', b'\n')
-            with Image.open(BytesIO(screenshot_data)) as img:
-                img.save(full_screenshot_path)
+            img = Image.open(BytesIO(screenshot_data)).convert("RGB")  # Keep in memory
 
             # Check if this screen contains a heart icon (aka a profile photo)
-            if is_prompt_background(full_screenshot_path):
+            if is_prompt_background(img):
                 print("Prompt detected. Skipping capture.")
             else:
-                # Crop and save actual photo area
-                with Image.open(full_screenshot_path) as img:
-                    cropped = img.crop(CROP_BOX)
+                heart_coords = detect_hearts_from_screen(img, output_folder=output_folder, max_hearts=max_hearts)
+
+                for i, (x, y) in enumerate(heart_coords):
+                    print(f"Heart {i}: x={x}, y={y}")
+                    left = max(0, x - CROP_LEFT)
+                    upper = max(0, y - CROP_TOP)
+                    right = x + CROP_RIGHT
+                    lower = y + CROP_BOTTOM
+
+                    cropped = img.crop((left, upper, right, lower))
                     cropped_path = os.path.join(profile_folder, f"img_{saved_images + 1}.png")
                     cropped.save(cropped_path)
+
                     print(f"Saved profile photo #{saved_images + 1}")
                     saved_images += 1
-            prev_count = total_saved
 
-            total_saved = detect_hearts_from_screen(output_folder=output_folder, max_hearts=max_hearts)
+
+            prev_count = total_saved
+            total_saved += len(heart_coords)
+
 
             if total_saved >= max_hearts:
                 print("[hinge] Reached maximum heart count.")
