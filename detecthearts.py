@@ -9,7 +9,7 @@ import os
 template = cv2.imread("love_button.png", cv2.IMREAD_GRAYSCALE)
 template_w, template_h = template.shape[::-1]
 
-def detect_hearts_from_screen(img_pil, output_folder="detected_hearts", max_hearts=10):
+def detect_hearts_from_screen(img_pil, output_folder="detected_hearts", max_hearts = 10):
     os.makedirs(output_folder, exist_ok=True)
 
     img_cv = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2GRAY)

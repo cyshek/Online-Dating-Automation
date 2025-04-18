@@ -2,11 +2,10 @@ import subprocess
 import time
 import os
 import json
-import shutil
 import uuid
 import numpy as np
-from PIL import Image
 from io import BytesIO
+from PIL import Image, ImageDraw
 from detecthearts import detect_hearts_from_screen
 
 # File path for storing like/dislike counters
@@ -27,8 +26,6 @@ CROP_LEFT = 940 # How far to the LEFT of the heart to start cropping
 CROP_TOP = 940  # How far ABOVE the heart to start cropping
 CROP_RIGHT = 0    # How far to the RIGHT of the heart to include (0 = stop exactly at x)
 CROP_BOTTOM = 0   # How far BELOW the heart to include (0 = stop exactly at y)
-
-
 
 # Create the directories if they do not exist
 for path in [LIKED_PATH, DISLIKED_PATH, TEMP_SCREENSHOT_PATH]:
@@ -66,21 +63,44 @@ def remove_images_in_main_profile_folder(profile_folder):
             os.remove(item_path)
             print(f"Deleted: {item_path}")
 
-def is_prompt_background(image):
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-
-    x, y = HEART_BUTTON_COORDS
-    check_area = image.crop((x - 74, y - 74, x, y))
-
-    cropped_pixels = np.array(check_area)
-    avg_color = np.mean(cropped_pixels, axis=(0, 1))
-    return all(avg_color > COLOR_THRESHOLD)
-
 def swipe_up():
     # Coordinates based on 1080x1920 screen — adjust if needed
     x1, y1, x2, y2 = 500, 1000, 500, 500
     subprocess.run(["adb", "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), "300"])
+
+def is_grayscale_region(image, x, y, box_size=100, tolerance=10, grayscale_ratio_threshold=0.9):
+    """
+    Check if a square region centered at (x, y) is mostly grayscale.
+    
+    Parameters:
+        image (PIL.Image): RGB image.
+        x, y (int): Center coordinates.
+        box_size (int): Width/height of the square region.
+        tolerance (int): Max allowed difference between R, G, B to consider a pixel grayscale.
+        grayscale_ratio_threshold (float): If this ratio of pixels are grayscale, region is considered grayscale.
+    
+    Returns:
+        bool: True if region is grayscale-dominant, False otherwise.
+    """
+    half = box_size // 2
+    left = max(0, x - half)
+    upper = max(0, y - half)
+    right = x + half
+    lower = y + half
+
+    region = image.crop((left, upper, right, lower)).convert("RGB")
+    pixels = np.array(region)
+    
+    # Calculate absolute channel differences
+    r, g, b = pixels[:, :, 0], pixels[:, :, 1], pixels[:, :, 2]
+    diff_rg = np.abs(r - g)
+    diff_rb = np.abs(r - b)
+    diff_gb = np.abs(g - b)
+    
+    grayscale_mask = (diff_rg < tolerance) & (diff_rb < tolerance) & (diff_gb < tolerance)
+    grayscale_ratio = np.sum(grayscale_mask) / grayscale_mask.size
+
+    return grayscale_ratio >= grayscale_ratio_threshold
 
 if __name__ == "__main__":
     counters = load_counters()
@@ -89,56 +109,52 @@ if __name__ == "__main__":
     output_folder = "detected_hearts"
     os.makedirs(output_folder, exist_ok=True)
 
-    max_images = 5
+    max_images = 10
     saved_images = 0
-
     max_hearts = 10
-    total_saved = 0
-    attempts = 0
-    max_attempts = 10  # Prevent infinite scrolls
+
+    seen_hashes = set()  # Track unique image hashes to avoid saving duplicates
 
     try:
-        while total_saved < max_hearts and attempts < max_attempts:
+        while saved_images < max_images:
             result = subprocess.run(["adb", "shell", "screencap", "-p"], capture_output=True, check=True)
             screenshot_data = result.stdout.replace(b'\r\n', b'\n')
             img = Image.open(BytesIO(screenshot_data)).convert("RGB")  # Keep in memory
 
-            # Check if this screen contains a heart icon (aka a profile photo)
-            if is_prompt_background(img):
-                print("Prompt detected. Skipping capture.")
-            else:
-                heart_coords = detect_hearts_from_screen(img, output_folder=output_folder, max_hearts=max_hearts)
+            
+            heart_coords = detect_hearts_from_screen(img, output_folder=output_folder, max_hearts=max_hearts)
 
-                for i, (x, y) in enumerate(heart_coords):
-                    print(f"Heart {i}: x={x}, y={y}")
-                    left = max(0, x - CROP_LEFT)
-                    upper = max(0, y - CROP_TOP)
-                    right = x + CROP_RIGHT
-                    lower = y + CROP_BOTTOM
+            newly_saved = 0
+            for i, (x, y) in enumerate(heart_coords):
+                print(f"Heart {i}: x={x}, y={y}")
+                
+                # Draw a red rectangle around the region being analyzed for grayscale
+                draw = ImageDraw.Draw(img)
+                box_half = 50  # Adjust if your is_grayscale_region uses a different size
+                draw.rectangle([(x - box_half, y - box_half), (x + box_half, y + box_half)], outline="red", width=3)
 
-                    cropped = img.crop((left, upper, right, lower))
-                    cropped_path = os.path.join(profile_folder, f"img_{saved_images + 1}.png")
-                    cropped.save(cropped_path)
+                if is_grayscale_region(img, x, y):
+                    print(f"Heart {i} likely in grayscale prompt — skipping.")
+                    continue
 
-                    print(f"Saved profile photo #{saved_images + 1}")
-                    saved_images += 1
+                # Define crop box based on the heart position
+                left = max(0, x - CROP_LEFT)
+                upper = max(0, y - CROP_TOP)
+                right = x + CROP_RIGHT
+                lower = y + CROP_BOTTOM
 
+                # Draw a red rectangle showing the crop area on the full image (for context)
+                draw = ImageDraw.Draw(img)
+                draw.rectangle([(left, upper), (right, lower)], outline="red", width=3)
 
-            prev_count = total_saved
-            total_saved += len(heart_coords)
-
-
-            if total_saved >= max_hearts:
-                print("[hinge] Reached maximum heart count.")
-                break
-
-            if total_saved == prev_count:
-                print("[hinge] No new hearts detected — possible bottom of profile.")
-                break
+                # Save the full screenshot with the red box
+                full_img_path = os.path.join(profile_folder, f"img_{saved_images + 1}.png")
+                img.save(full_img_path)
+                print(f"Saved full screenshot #{saved_images + 1}")
+                saved_images += 1
 
             swipe_up()
             time.sleep(1.0)
-            attempts += 1
 
         print(f"Done! Collected {saved_images} profile image(s).")
     except KeyboardInterrupt:
