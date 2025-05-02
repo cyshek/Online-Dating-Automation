@@ -16,16 +16,10 @@ LIKED_PATH = r"D:\Online Dating Automation\Image Data\Liked Profiles"
 DISLIKED_PATH = r"D:\Online Dating Automation\Image Data\Disliked Profiles"
 TEMP_SCREENSHOT_PATH = r"D:\Online Dating Automation\Image Data\Temporary Screenshots"
 
-HEART_BUTTON_COORDS = (1017, 1029)  # This is the bottom right corner of the heart button
-COLOR_THRESHOLD = 230  # Anything above this (R, G, B) is considered white
-
-# Define the cropping box for Hinge profile images (left, upper, right, lower)
-# CROP_BOX = (30, 302, 1047, 1331)
-# Customize how far the crop extends from the heart icon
 CROP_LEFT = 940 # How far to the LEFT of the heart to start cropping
 CROP_TOP = 940  # How far ABOVE the heart to start cropping
-CROP_RIGHT = 0    # How far to the RIGHT of the heart to include (0 = stop exactly at x)
-CROP_BOTTOM = 0   # How far BELOW the heart to include (0 = stop exactly at y)
+CROP_RIGHT = 20    # How far to the RIGHT of the heart to include (0 = stop exactly at x)
+CROP_BOTTOM = -20   # How far BELOW the heart to include (0 = stop exactly at y)
 
 # Create the directories if they do not exist
 for path in [LIKED_PATH, DISLIKED_PATH, TEMP_SCREENSHOT_PATH]:
@@ -121,19 +115,21 @@ if __name__ == "__main__":
             screenshot_data = result.stdout.replace(b'\r\n', b'\n')
             img = Image.open(BytesIO(screenshot_data)).convert("RGB")  # Keep in memory
 
-            
             heart_coords = detect_hearts_from_screen(img, output_folder=output_folder, max_hearts=max_hearts)
 
-            newly_saved = 0
             for i, (x, y) in enumerate(heart_coords):
                 print(f"Heart {i}: x={x}, y={y}")
                 
                 # Draw a red rectangle around the region being analyzed for grayscale
                 draw = ImageDraw.Draw(img)
-                box_half = 50  # Adjust if your is_grayscale_region uses a different size
-                draw.rectangle([(x - box_half, y - box_half), (x + box_half, y + box_half)], outline="red", width=3)
+                box_left = x - 50
+                box_right = x + 50
+                box_top = y - 10
+                box_bottom = y + 50
 
-                if is_grayscale_region(img, x, y):
+                draw.rectangle([(box_left, box_top), (box_right, box_bottom)], outline="red", width=3)
+
+                if is_grayscale_region(img, x, y - 10):
                     print(f"Heart {i} likely in grayscale prompt — skipping.")
                     continue
 
