@@ -1,0 +1,4 @@
+- For hinge it’s way too much of a pain to automatically save all of the images
+- I was trying to template match the heart icon and then use the location of the heart icon to draw a box to collect the images
+- The problem with this is that you have to scroll enough to save a new heart and not save duplicates
+- The size of peoples prompts vary, so sometimes you will get duplicate hearts or the screen will cut off part of the heart (when you get bad luck with the auto scroll)
